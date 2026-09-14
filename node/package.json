@@ -1,0 +1,20 @@
+{
+  "name": "afl-odds-api-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AFL head-to-head odds from the PuntersEdge API: normalise every bookmaker's prices into one table and print the best price per team.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "bin": { "afl-odds": "./afl-odds.mjs" },
+  "scripts": {
+    "start": "node afl-odds.mjs",
+    "demo": "node afl-odds.mjs --keyless",
+    "aflw": "node afl-odds.mjs --sport aflw"
+  },
+  "dependencies": {},
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Propertyscout001/afl-odds-api-example.git"
+  }
+}

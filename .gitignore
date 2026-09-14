@@ -1,0 +1,27 @@
+# Secrets - the tools read PE_API_KEY from the environment and nothing else
+.env
+.env.*
+*.key
+*.pem
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Scratch output (docs/ is committed on purpose)
+/out.html
+/tmp/

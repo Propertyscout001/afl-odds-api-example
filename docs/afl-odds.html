@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8">
+<title>AFL odds grid</title>
+<style>
+:root{color-scheme:light dark;--fg:#16181d;--bg:#fbfbf9;--mut:#6b7280;--line:#dfe1e4;--hi:#0b5c3f;--hibg:#e7f4ee}
+@media(prefers-color-scheme:dark){:root{--fg:#e6e7ea;--bg:#15171b;--mut:#9aa1ab;--line:#2d3138;--hi:#6ee7b7;--hibg:#16302a}}
+body{margin:0;padding:32px 20px;background:var(--bg);color:var(--fg);
+font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto}
+h1{font-size:19px;margin:0 0 4px;font-weight:600;letter-spacing:-.01em}
+.meta{color:var(--mut);font-size:12.5px;margin:0 0 28px;
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+section{border-top:1px solid var(--line);padding:20px 0 4px}
+h2{font-size:15.5px;margin:0 0 2px;font-weight:600}
+.sub{color:var(--mut);font-size:12.5px;margin:0 0 14px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left;
+font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+thead th{color:var(--mut);font-weight:500;font-size:12.5px}
+tr.best td{background:var(--hibg);color:var(--hi);font-weight:600;
+border-top:1px solid var(--line)}
+tr.sub td{color:var(--mut);font-weight:400;font-size:12.5px;background:var(--hibg)}
+.orr{margin:12px 0 0;font-size:13px}
+.orr b{font-variant-numeric:tabular-nums}
+.note{color:var(--mut);font-size:12.5px;margin-top:6px}
+footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;
+color:var(--mut);font-size:12.5px}
+a{color:inherit}
+</style><main>
+<h1>AFL head-to-head odds &mdash; best price per team</h1>
+<p class="meta">/v1/sports/afl/odds?markets=h2h<br>keyed (PE_API_KEY set) &middot; generated 2026-09-14 23:59 UTC</p>
+<section><h2>Sydney v Fremantle</h2>
+<p class="sub">Fri 18 Sep 2026 19:40 AEST &middot; AFL &middot; 6 bookmaker(s)</p>
+<table><thead><tr><th>bookmaker</th><th>Sydney</th><th>Fremantle</th></tr></thead><tbody>
+<tr><td>tab</td><td>2.45</td><td>1.55</td></tr>
+<tr><td>pointsbetau</td><td>2.45</td><td>1.54</td></tr>
+<tr><td>betright</td><td>2.45</td><td>1.55</td></tr>
+<tr><td>palmerbet</td><td>2.60</td><td>1.40</td></tr>
+<tr><td>ladbrokes_au</td><td>2.50</td><td>1.55</td></tr>
+<tr><td>sportsbet</td><td>2.50</td><td>1.54</td></tr>
+<tr class="best"><td>best</td><td>2.60</td><td>1.55</td></tr>
+<tr class="sub"><td>at</td><td>palmerbet</td><td>betright,ladbrokes_au,tab</td></tr>
+<tr class="sub"><td>implied probability</td><td>38.46%</td><td>64.52%</td></tr>
+</tbody></table>
+<p class="orr">Overround at best-of-market prices <b>102.98%</b></p>
+<p class="note">Same sum inside a single book: 104.52% (ladbrokes_au) to 109.89% (palmerbet)</p>
+</section>
+<section><h2>Hawthorn v Brisbane Lions</h2>
+<p class="sub">Sat 19 Sep 2026 17:15 AEST &middot; AFL &middot; 6 bookmaker(s)</p>
+<table><thead><tr><th>bookmaker</th><th>Hawthorn</th><th>Brisbane Lions</th></tr></thead><tbody>
+<tr><td>tab</td><td>2.00</td><td>1.80</td></tr>
+<tr><td>pointsbetau</td><td>2.00</td><td>1.80</td></tr>
+<tr><td>betright</td><td>2.02</td><td>1.80</td></tr>
+<tr><td>palmerbet</td><td>2.00</td><td>1.80</td></tr>
+<tr><td>ladbrokes_au</td><td>2.00</td><td>1.82</td></tr>
+<tr><td>sportsbet</td><td>2.00</td><td>1.80</td></tr>
+<tr class="best"><td>best</td><td>2.02</td><td>1.82</td></tr>
+<tr class="sub"><td>at</td><td>betright</td><td>ladbrokes_au</td></tr>
+<tr class="sub"><td>implied probability</td><td>49.50%</td><td>54.95%</td></tr>
+</tbody></table>
+<p class="orr">Overround at best-of-market prices <b>104.45%</b></p>
+<p class="note">Same sum inside a single book: 104.95% (ladbrokes_au) to 105.56% (palmerbet)</p>
+</section>
+<footer>Implied probability is 1/price; the overround is the sum of those across both outcomes. Both are arithmetic on the quoted prices and describe nothing else.<br><br>18+ only. Gambling can be addictive &mdash; please gamble responsibly. Gambling Help: 1800 858 858 &middot; <a href="https://www.gambleaware.nsw.gov.au">gambleaware.nsw.gov.au</a><br>Data: <a href="https://puntersedge.online/afl-odds-api-australia?utm_source=afl-odds-api-example&amp;utm_medium=demo">PuntersEdge AFL odds API</a>. This page is a developer example for reading an odds data feed. It is not betting advice, it places no bets and it holds no bookmaker credentials.</footer></main>
