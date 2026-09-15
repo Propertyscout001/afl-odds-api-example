@@ -2,7 +2,7 @@
   "sport": "afl",
   "source": "/v1/sports/afl/odds?markets=h2h",
   "mode": "keyed (PE_API_KEY set)",
-  "generated_at": "2026-09-14T23:59:24Z",
+  "generated_at": "2026-09-15T00:27:01Z",
   "fixtures": [
     {
       "fixture": "Sydney v Fremantle",
@@ -14,14 +14,6 @@
       ],
       "bookmaker_count": 6,
       "prices": {
-        "betright": {
-          "home": 2.45,
-          "away": 1.55
-        },
-        "ladbrokes_au": {
-          "home": 2.5,
-          "away": 1.55
-        },
         "palmerbet": {
           "home": 2.6,
           "away": 1.4
@@ -34,8 +26,16 @@
           "home": 2.5,
           "away": 1.54
         },
+        "betright": {
+          "home": 2.45,
+          "away": 1.55
+        },
         "tab": {
           "home": 2.45,
+          "away": 1.55
+        },
+        "ladbrokes_au": {
+          "home": 2.5,
           "away": 1.55
         }
       },
@@ -59,12 +59,12 @@
       },
       "overround_at_best": 1.029776674937965,
       "overround_by_bookmaker": {
-        "betright": 1.053324555628703,
-        "ladbrokes_au": 1.0451612903225806,
         "palmerbet": 1.098901098901099,
         "pointsbetau": 1.0575139146567718,
         "sportsbet": 1.0493506493506493,
-        "tab": 1.053324555628703
+        "betright": 1.053324555628703,
+        "tab": 1.053324555628703,
+        "ladbrokes_au": 1.0451612903225806
       }
     },
     {
@@ -77,14 +77,6 @@
       ],
       "bookmaker_count": 6,
       "prices": {
-        "betright": {
-          "home": 2.02,
-          "away": 1.8
-        },
-        "ladbrokes_au": {
-          "home": 2.0,
-          "away": 1.82
-        },
         "palmerbet": {
           "home": 2.0,
           "away": 1.8
@@ -97,9 +89,17 @@
           "home": 2.0,
           "away": 1.8
         },
+        "betright": {
+          "home": 2.02,
+          "away": 1.8
+        },
         "tab": {
           "home": 2.0,
           "away": 1.8
+        },
+        "ladbrokes_au": {
+          "home": 2.0,
+          "away": 1.82
         }
       },
       "best": {
@@ -120,12 +120,48 @@
       },
       "overround_at_best": 1.0445000544010443,
       "overround_by_bookmaker": {
-        "betright": 1.0506050605060506,
-        "ladbrokes_au": 1.0494505494505493,
         "palmerbet": 1.0555555555555556,
         "pointsbetau": 1.0555555555555556,
         "sportsbet": 1.0555555555555556,
-        "tab": 1.0555555555555556
+        "betright": 1.0506050605060506,
+        "tab": 1.0555555555555556,
+        "ladbrokes_au": 1.0494505494505493
+      }
+    },
+    {
+      "fixture": "Brodie Grundy v Christian Petracca",
+      "home_team": "Brodie Grundy",
+      "away_team": "Christian Petracca",
+      "commence_time": "2026-09-21T10:10:00+00:00",
+      "competitions": [
+        "AFL Brownlow H2H's"
+      ],
+      "bookmaker_count": 1,
+      "prices": {
+        "sportsbet": {
+          "home": 1.87,
+          "away": 1.87
+        }
+      },
+      "best": {
+        "home": {
+          "price": 1.87,
+          "bookmakers": [
+            "sportsbet"
+          ],
+          "implied_probability": 0.53475935828877
+        },
+        "away": {
+          "price": 1.87,
+          "bookmakers": [
+            "sportsbet"
+          ],
+          "implied_probability": 0.53475935828877
+        }
+      },
+      "overround_at_best": 1.06951871657754,
+      "overround_by_bookmaker": {
+        "sportsbet": 1.06951871657754
       }
     }
   ]

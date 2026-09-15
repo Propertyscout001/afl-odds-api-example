@@ -9,8 +9,10 @@ overround. The data is Australian: AFL and AFLW fixtures priced by Australian
 licensed bookmakers, decimal odds, times rendered in Australian Eastern time.
 
 Pick whichever file matches your stack. They are ports of each other and print
-byte-identical tables, so you can also read them side by side to see the same
-logic in both languages.
+the same table apart from four lines that cannot match between two separate runs
+— the wall-clock timestamp, the quote age, the elapsed time and the gzip byte
+count — so you can also read them side by side to see the same logic in both
+languages. `compare.sh` scrubs exactly those four lines and diffs the rest.
 
 - `python/afl_odds.py` — Python 3.9+, standard library only, no `pip install`
 - `node/afl-odds.mjs` — Node 18+, standard library only, no `npm install`
@@ -36,17 +38,17 @@ the first fixture; the full run is in [`docs/output.txt`](docs/output.txt).
 ```
 $ python3 python/afl_odds.py --keyless
 
-AFL odds via PuntersEdge  -  AFL h2h, decimal
+AFL odds via PuntersEdge  -  head-to-head, decimal
 source   /v1/demo/best-odds + /v1/demo/book-sport x7
 mode     keyless sandbox (0 credits, no registration)
-fetched  2026-09-14T23:56:09Z
+fetched  2026-09-15T00:27:02Z
 market   3 fixture(s), 5 bookmaker(s) quoting: betright, ladbrokes_au, pointsbetau, sportsbet, tab
 sandbox  asked 7 of the 7 books the demo accepts, 5 returned data
          demo book names differ from keyed ones (betr -> betright)
          quoted nothing: neds, unibet
-         a free key adds the books the sandbox withholds, but the AFL ceiling
-         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.
-         The 14-book depth is the RACING panel: /v1/racing/*
+         a free key adds the books the sandbox withholds, but the sports
+         panel is thinner than the racing one: measured 2026-09-15, afl and
+         nrl carried 6 bookmakers, nba 5, aflw 3. 14 books is /v1/racing/*
 
 ========================================================================
 Sydney v Fremantle
@@ -70,10 +72,13 @@ Fri 18 Sep 2026 19:40 AEST  5 books
                                       105.75%  pointsbetau
 ```
 
-An HTML version of the same table is written with `--html`. The rendered files
-are committed: [`docs/afl-odds.html`](docs/afl-odds.html) and
-[`docs/aflw-odds.html`](docs/aflw-odds.html). Open either directly in a browser;
-no server needed.
+An HTML version of the same table is written with `--html`, headed with whatever
+sport you asked for. Two renders from the keyed path are committed:
+[`docs/afl-odds.html`](docs/afl-odds.html) (2 AFL fixtures plus the Brownlow
+market, 6 bookmakers) and [`docs/aflw-odds.html`](docs/aflw-odds.html) (9 AFLW
+matches, 3 bookmakers). Open either directly in a browser; no server needed.
+Both are snapshots captured 2026-09-15 and say so in their own header — re-run
+with `--html` for current prices.
 
 ## What the two implementations agree on
 
@@ -89,14 +94,20 @@ python3 python/afl_odds.py --keyless == node node/afl-odds.mjs --keyless
 identical (after scrubbing timestamp, quote age, elapsed, wire bytes)
 ```
 
-Verified on 2026-09-15 for `--keyless`, for the keyed AFL path and for
-`--sport aflw`.
+Verified on 2026-09-15 for `--keyless`, `--keyless --sport aflw`, the keyed AFL
+path, keyed `--sport aflw` and keyed `--matches-only`. All five came back
+identical.
 
 Two runs of the keyless path cost 16 requests against a cap of 30 per minute per
 IP, so the script pauses between them; `PE_COMPARE_PAUSE=0` skips that if you
 know the window is clear. If a run is rate limited anyway it reports
 `inconclusive` rather than claiming the two implementations disagree — they saw
-different data, so the diff would mean nothing. If a price genuinely moves
+different data, so the diff would mean nothing. That check greps for the
+signatures the programs actually emit (`API error: 429 `, `rate limited (30/min)`,
+`request failed: … (429)`) and not for a bare `429`, because the normal output is
+full of three-digit numbers that can read `429` by coincidence — `freshest 429s
+old`, `elapsed 0.429s`, `429 B on the wire` — and a substring match called those
+runs rate limited when nothing was. If a price genuinely moves
 between the two runs the diff will show that too, and the script says so rather
 than pretending it found a bug.
 
@@ -122,7 +133,7 @@ What the key changes, measured 2026-09-15:
 | bookmakers on an AFL fixture | 5 | 6 |
 | HTTP calls for a full grid | 8 | 1 |
 | credits | 0 | 1 |
-| AFLW | not offered | yes |
+| AFLW | market-best price only (`/demo/book-sport` rejects `aflw`) | full per-book grid |
 | `competition` label (to spot non-match markets) | absent | present |
 | quote age per bookmaker | absent | present |
 
@@ -187,10 +198,20 @@ whose body lists what it does accept: `betr, ladbrokes, neds, pointsbet,
 sportsbet, tab, unibet`. The mapping is not guessable from the spelling —
 demo `betr` matched **betright** on 4 of 4 prices when compared against the keyed
 response, not `betr_au`. `DEMO_TO_KEYED` records it, derived by comparing price
-vectors for the four books that returned data (`betr`, `ladbrokes`, `pointsbet`,
-`sportsbet`). `neds` and `unibet` returned no AFL prices in the sandbox, so there
+vectors. Five of the seven were pinned that way on 2026-09-15, each matching
+exactly one keyed bookmaker outright: `betr`→`betright` 4/4, `ladbrokes`→`ladbrokes_au`
+4/4, `pointsbet`→`pointsbetau` 4/4, `sportsbet`→`sportsbet` 6/6, `tab`→`tab` 4/4.
+`neds` and `unibet` returned no prices in the sandbox for `afl` or `nrl`, so there
 was nothing to compare and their mapping is marked ASSUMED in the source rather
-than presented as verified. The demo `sport` list differs too and has no `aflw`.
+than presented as verified.
+
+**The two demo endpoints do not accept the same sports.** `/v1/demo/best-odds`
+serves `aflw`; `/v1/demo/book-sport` rejects it with a 400 listing `afl, cricket,
+greyhound-racing, horse-racing, mma, nba, nrl, rugby-union, soccer, tennis`. So
+`--keyless --sport aflw` skips the seven book probes outright — they could only
+return seven 400s — and prints the market-best prices from `/demo/best-odds`
+alone, spending 1 request instead of 8. The per-bookmaker grid for AFLW needs a
+key.
 
 **Demo endpoints are capped at 30 requests per minute per IP,** returning a 429.
 An early version of this code caught that exception and moved on, which made a
@@ -198,10 +219,16 @@ rate-limited bookmaker look identical to one that simply had no prices. It now
 records failures separately, reports the status code, stops the sweep on a 429
 and lists which books were never asked.
 
-**Responses compress about 7x.** `/v1/sports/afl/odds?markets=h2h` measured
-7,457 bytes uncompressed and 1,062 gzipped. Connection reuse is worth having
-too: a cold request measured 163ms end to end (40ms TCP, a further 41ms for the
-TLS handshake) against 48–53ms on an already-open connection.
+**Responses compress about 7x.** One capture of `/v1/sports/afl/odds?markets=h2h`
+on 2026-09-15: 7,491 bytes of JSON arrived as 1,048 bytes on the wire. The same
+figures are quoted in both source files, from that same capture.
+
+**Connection reuse saves a handshake per call.** A cold request pays a TCP
+connect and then a TLS handshake before the request is even sent; on a reused
+connection both are zero. Measured 2026-09-15 from a residential connection in
+Australia: 46ms TCP and a further 104ms TLS. That is one machine on one network
+on one day — your own latency will differ, and the reproducible part of the
+claim is the structure (one handshake instead of eight), not the milliseconds.
 
 **Retries are deliberate and loud.** A dropped connection is retried once, with
 a note on stderr. An HTTP error is never retried. A silent retry against a price
@@ -274,7 +301,10 @@ figure is at [puntersedge.online/coverage-report](https://puntersedge.online/cov
 --matches-only       drop markets the competition label proves are not team-vs-team
 --json               emit JSON instead of the table
 --html FILE          also write an HTML table
---books a,b,c        probe specific bookmakers (keyless mode)
+--books a,b,c        probe specific bookmakers in keyless mode. The demo endpoint
+                     accepts betr, ladbrokes, neds, pointsbet, sportsbet, tab,
+                     unibet; the keyed spellings the table prints (betright,
+                     ladbrokes_au, pointsbetau) are translated for you
 -v, --verbose        log every HTTP call, status and wire size
 ```
 
@@ -301,7 +331,11 @@ Other repositories, if you want something this one deliberately is not:
 - [puntersedge-mcp](https://github.com/Propertyscout001/puntersedge-mcp) — MCP
   server, for using the API from an LLM tool
 - [puntersedge-examples](https://github.com/Propertyscout001/puntersedge-examples) —
-  six standalone Python scripts across racing and sports
+  six standalone Python scripts across racing and sports. `06_sports_best_odds.py`
+  covers the market-wide best price per team in about sixty lines, via
+  `/v1/best-odds` (3 credits); it has no per-bookmaker grid, no overround, no
+  team-name normalisation, no AFLW row merge and no Node port, which is what this
+  repo adds
 - [au-racing-odds-dashboard](https://github.com/Propertyscout001/au-racing-odds-dashboard) —
   next-to-go racing, one stdlib Python file
 
@@ -341,6 +375,11 @@ Other repositories, if you want something this one deliberately is not:
 - **Times are rendered for Australia/Sydney** via `zoneinfo`/`Intl`, which is
   wrong for a Perth or Adelaide reader. The underlying `commence_time` is UTC and
   is preserved untouched in `--json`.
+- **The committed `docs/` files are dated snapshots, not live data.**
+  `docs/output.txt`, `docs/sample.json`, `docs/afl-odds.html` and
+  `docs/aflw-odds.html` were captured on 2026-09-15 and will never refresh
+  themselves; the HTML says so in its own header line. Re-run with `--html` for
+  current prices.
 
 ## Licence
 

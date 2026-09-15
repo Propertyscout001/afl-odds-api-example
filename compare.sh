@@ -1,8 +1,9 @@
 #!/bin/sh
 # Run the Python and the Node implementation back to back and diff their output.
 #
-# They are ports of each other and print the same table, so the diff should be
-# empty once the lines that cannot match between two separate runs are scrubbed:
+# They are ports of each other and print the same table apart from four lines
+# that cannot match between two separate runs, so the diff should be empty once
+# those are scrubbed:
 #
 #   fetched <ts>        wall clock, different second
 #   freshest <n>s old   how old the bookmaker quote was at fetch time
@@ -25,9 +26,10 @@ cd "$(dirname "$0")"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# The keyless path costs 8 requests against a 30/minute/IP cap on /v1/demo/*,
-# and two runs cost 16. Pause between them so the second is not starved by the
-# first. Set PE_COMPARE_PAUSE=0 to skip if you know the window is clear.
+# The keyless path costs 8 requests against a 30/minute/IP cap on /v1/demo/*
+# (1 for best-odds plus one per bookmaker), and two runs cost 16. Pause between
+# them so the second is not starved by the first. Set PE_COMPARE_PAUSE=0 to skip
+# if you know the window is clear.
 PAUSE=${PE_COMPARE_PAUSE-0}
 case " $* " in
     *" --keyless "*) [ -n "${PE_API_KEY-}" ] || PAUSE=${PE_COMPARE_PAUSE-65} ;;
@@ -43,7 +45,13 @@ node node/afl-odds.mjs "$@" >"$WORK/js.out" 2>"$WORK/js.err" || true
 
 # A rate-limited run saw fewer bookmakers than the other. That is not the two
 # implementations disagreeing, and reporting it as one would be a lie.
-if grep -q '429' "$WORK/py.out" "$WORK/py.err" "$WORK/js.out" "$WORK/js.err" 2>/dev/null; then
+#
+# Match the signatures the two programs actually emit, NOT a bare "429": the
+# normal output is full of three-digit numbers that can legitimately read 429
+# ("freshest 429s old", "elapsed 0.429s", "429 B on the wire"), and a bare
+# substring match declared those runs rate limited when nothing was.
+if grep -qE 'API error: 429 |rate limited \([0-9]+/min\)|request failed: .*\(429\)' \
+        "$WORK/py.out" "$WORK/py.err" "$WORK/js.out" "$WORK/js.err" 2>/dev/null; then
     echo "inconclusive: at least one run hit the demo rate limit (30 req/min/IP)."
     echo "The two runs did not see the same data, so the diff would be meaningless."
     echo "Wait a minute and try again, or export PE_API_KEY and compare the keyed path."

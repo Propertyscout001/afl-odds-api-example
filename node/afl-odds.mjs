@@ -6,8 +6,9 @@
  * probability and the market overround.
  *
  * Runs with no API key at all (sandbox endpoints, 0 credits). With PE_API_KEY
- * set it uses the keyed endpoints and sees every bookmaker instead of the
- * sandbox two.
+ * set it uses the keyed endpoints instead: the whole grid in one call, and
+ * every bookmaker quoting the fixture rather than the sandbox's subset
+ * (measured 2026-09-15 on AFL, 6 bookmakers keyed against 5 in the sandbox).
  *
  * Node 18+, standard library only. This is a line-for-line port of
  * ../python/afl_odds.py and prints the same table.
@@ -30,6 +31,8 @@ const HOST = "api.puntersedge.online";
 const PREFIX = "/v1";
 const USER_AGENT =
   "afl-odds-api-example/1.0 (+https://github.com/Propertyscout001/afl-odds-api-example)";
+const SIGNUP_URL =
+  "https://puntersedge.online/api?utm_source=afl-odds-api-example&utm_medium=code";
 
 // The 14 Australian bookmakers the API serves, as of 2026-09-15.
 // Live list: https://puntersedge.online/coverage-report
@@ -48,11 +51,12 @@ const BOOKMAKERS = [
 //
 const DEMO_BOOKS = ["betr", "ladbrokes", "neds", "pointsbet", "sportsbet", "tab", "unibet"];
 
-// Which keyed bookmaker each demo key actually serves. The four marked VERIFIED
+// Which keyed bookmaker each demo key actually serves. The five marked VERIFIED
 // were established 2026-09-15 by comparing the demo price vectors against
 // /v1/sports/afl/odds rather than by guessing from the spelling, which matters:
 // demo "betr" matched betright on 4 of 4 prices, so it is betright, NOT betr_au.
-// neds and unibet returned no AFL data in the sandbox, so there were no prices to
+// Each of the five matched exactly one keyed book outright. neds and unibet
+// returned no data in the sandbox for afl or nrl, so there were no prices to
 // compare and their mapping is only assumed from the name. Re-derive if the
 // sandbox changes.
 const DEMO_TO_KEYED = {
@@ -60,10 +64,15 @@ const DEMO_TO_KEYED = {
   ladbrokes: "ladbrokes_au", // VERIFIED 4/4 prices
   pointsbet: "pointsbetau",  // VERIFIED 4/4 prices
   sportsbet: "sportsbet",    // VERIFIED 6/6 prices
-  tab: "tab",                // matched on an earlier sweep; name unambiguous
+  tab: "tab",                // VERIFIED 4/4 prices
   neds: "neds",              // ASSUMED - no sandbox data to compare
   unibet: "unibet",          // ASSUMED - no sandbox data to compare
 };
+
+// The reverse direction, so --books accepts either spelling.
+const KEYED_TO_DEMO = Object.fromEntries(
+  Object.entries(DEMO_TO_KEYED).map(([demo, keyed]) => [keyed, demo])
+);
 
 // The demo `sport` vocabulary differs too, and has no aflw:
 //   afl, cricket, greyhound-racing, horse-racing, mma, nba, nrl, rugby-union,
@@ -72,7 +81,8 @@ const DEMO_SPORTS = ["afl", "cricket", "greyhound-racing", "horse-racing", "mma"
   "nba", "nrl", "rugby-union", "soccer", "tennis"];
 
 // /v1/demo/* is capped at 30 requests per minute per IP. Probing all seven demo
-// books costs 8 calls including the best-odds call, which fits.
+// books costs 8 calls including the best-odds call, which fits. Two runs (16)
+// also fit; three do not.
 const DEMO_RATE_LIMIT_PER_MIN = 30;
 
 // Tokens that carry no identity when matching one bookmaker's spelling of a
@@ -106,9 +116,11 @@ class ApiError extends Error {
 /**
  * One HTTPS connection, held open across every request.
  *
- * Measured 2026-09-15: a cold request cost 163ms (40ms TCP + 41ms TLS on top of
- * the response); subsequent requests on the same connection cost 48-53ms. Worth
- * having when the keyless path makes 15 calls in a row.
+ * A cold request pays a TCP connect plus a TLS handshake before the request is
+ * even sent; on a reused connection both are zero. Measured 2026-09-15 from a
+ * residential connection in Australia: 46ms TCP and a further 104ms TLS. Your
+ * own latency will differ - the point is that the handshake is paid once rather
+ * than once per call, and the keyless path makes 8 calls in a row.
  *
  * node:https is used rather than global fetch so the agent, the gzip handling
  * and the byte counters are all explicit and match the Python port.
@@ -142,7 +154,8 @@ class Client {
     const headers = {
       Accept: "application/json",
       // Responses compress about 7x. Measured 2026-09-15 on
-      // /v1/sports/afl/odds: 7,486 bytes of JSON, 1,080 on the wire.
+      // /v1/sports/afl/odds?markets=h2h: 7,491 bytes of JSON arrived as
+      // 1,048 bytes on the wire.
       "Accept-Encoding": "gzip",
       "User-Agent": USER_AGENT,
       Connection: "keep-alive",
@@ -477,16 +490,48 @@ async function loadKeyed(client, sport) {
  *
  * /v1/demo/best-odds gives the market-wide best price per team but not the
  * per-book grid. /v1/demo/book-sport gives one book's prices at a time, so loop
- * it to build the grid. Only part of the book list answers in the sandbox:
- * measured 2026-09-15 for AFL, tab and sportsbet returned data and the other
- * twelve returned an empty item list.
+ * it to build the grid. Not every book answers: measured 2026-09-15 for AFL,
+ * five of the seven the sandbox accepts returned data (betr, ladbrokes,
+ * pointsbet, sportsbet, tab) and two returned an empty item list (neds,
+ * unibet).
  *
- * Mind the 30 requests/minute/IP cap on /v1/demo/*: this makes 1 + books.length
- * calls, so the default two-book probe costs 3.
+ * The two demo endpoints do not accept the same sports. /demo/best-odds serves
+ * aflw; /demo/book-sport rejects it with a 400 (verified 2026-09-15). So for a
+ * sport outside DEMO_SPORTS the per-book sweep is skipped: it can only return
+ * seven 400s, and on a 30 requests/minute/IP cap that is a quarter of the
+ * budget spent on a known miss. The same applies when /demo/best-odds returns
+ * no events at all - there is nothing to attach per-book prices to.
+ *
+ * Mind that cap: a full run makes 1 + books.length calls, so the default
+ * seven-book sweep costs 8.
  */
 async function loadKeyless(client, sport, books = null, verbose = false) {
+  // --books takes the demo vocabulary, but the table prints keyed names, so a
+  // reader copying "betright" off the output would otherwise get a 400.
+  // Translate keyed spellings back to the demo key before sending.
+  let probe = books
+    ? books.map((b) => KEYED_TO_DEMO[b.trim()] || b.trim())
+    : [...DEMO_BOOKS];
+
   const payload = await client.get("/demo/best-odds", { sport });
   const events = unwrap(payload, "events");
+
+  let skipReason = null;
+  if (!DEMO_SPORTS.includes(sport)) {
+    skipReason =
+      `/v1/demo/book-sport does not accept sport=${sport} (400); ` +
+      "only /v1/demo/best-odds does";
+  } else if (!events.length) {
+    skipReason = `/v1/demo/best-odds returned no ${sport} events to attach prices to`;
+  }
+  if (skipReason) {
+    process.stderr.write(
+      `note: skipping the ${probe.length} book probe(s) - ${skipReason}.\n` +
+        `      That saves ${probe.length} of the ${DEMO_RATE_LIMIT_PER_MIN} requests/minute the demo allows.\n` +
+        `      For the per-bookmaker grid use a free key: ${SIGNUP_URL}\n`
+    );
+    probe = [];
+  }
 
   const fixtures = [];
   for (const ev of events) {
@@ -503,7 +548,6 @@ async function loadKeyless(client, sport, books = null, verbose = false) {
     fixtures.push(fx);
   }
 
-  const probe = books || DEMO_BOOKS;
   const responding = [];
   const failed = [];
   const attempted = [];
@@ -538,11 +582,10 @@ async function loadKeyless(client, sport, books = null, verbose = false) {
     }
   }
 
-  return [
-    fixtures,
-    [responding, attempted, probe, failed],
-    `/v1/demo/best-odds + /v1/demo/book-sport x${probe.length}`,
-  ];
+  const source = probe.length
+    ? `/v1/demo/best-odds + /v1/demo/book-sport x${probe.length}`
+    : "/v1/demo/best-odds (per-book sweep skipped)";
+  return [fixtures, [responding, attempted, probe, failed], source];
 }
 
 function findFixture(fixtures, item) {
@@ -590,12 +633,27 @@ const clip = (s, n) => {
 };
 const bytesFmt = (n) => (n >= 1024 ? `${(n / 1024).toFixed(1)} kB` : `${n} B`);
 
+/**
+ * Best price to show for one side.
+ *
+ * The per-book grid wins when it exists. When it does not - keyless AFLW, where
+ * /v1/demo/book-sport refuses the sport - /v1/demo/best-odds still returned a
+ * market-wide best per team, and printing "-" would throw that away.
+ * Returns [price, bookmaker, fromGrid].
+ */
+function effectiveBest(fx, side, bookBest) {
+  if (bookBest !== null && bookBest !== undefined) return [bookBest, null, true];
+  const mb = fx.marketBest.get(side);
+  if (mb) return [mb[0], mb[1], false];
+  return [null, null, true];
+}
+
 function render(fixtures, sport, source, client, mode, responding = null, width = 72) {
   const out = [];
   const w = (line = "") => out.push(line);
 
   const quoting = [...new Set(fixtures.flatMap((fx) => [...fx.prices.keys()]))].sort();
-  w(`AFL odds via PuntersEdge  -  ${sport.toUpperCase()} h2h, decimal`);
+  w(`${sport.toUpperCase()} odds via PuntersEdge  -  head-to-head, decimal`);
   w(`source   ${source}`);
   w(`mode     ${mode}`);
   w(`fetched  ${new Date().toISOString().replace(/\.\d+Z$/, "Z")}`);
@@ -604,8 +662,14 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
     const [answered, attempted, probed, failed] = responding;
     const bad = new Set(failed.map(([b]) => b));
     const silent = attempted.filter((b) => !answered.includes(b) && !bad.has(b));
-    w(`sandbox  asked ${attempted.length} of the ${DEMO_BOOKS.length} books the demo accepts, ${answered.length} returned data`);
-    w("         demo book names differ from keyed ones (betr -> betright)");
+    if (!probed.length) {
+      w("sandbox  per-book sweep skipped, so this is /v1/demo/best-odds only:");
+      w("         market-best price per team, no per-bookmaker grid");
+      w("         (the reason is on stderr)");
+    } else {
+      w(`sandbox  asked ${attempted.length} of the ${DEMO_BOOKS.length} books the demo accepts, ${answered.length} returned data`);
+      w("         demo book names differ from keyed ones (betr -> betright)");
+    }
     if (silent.length) w(`         quoted nothing: ${silent.join(", ")}`);
     const skipped = probed.filter((b) => !attempted.includes(b));
     if (skipped.length) w(`         never asked: ${skipped.join(", ")}`);
@@ -616,13 +680,13 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
         w("            statement about what those bookmakers quote");
       }
     }
-    // NOT "the keyed API serves 14 books". 14 is the RACING panel. On AFL the ceiling is 6
-    // -- only Sportsbet, TAB, Ladbrokes, BetRight, PointsBet and Palmerbet supply sports odds
-    // at all, and not all six quote every fixture. Printing the racing number inside an AFL
-    // tool tells the reader a free key unlocks something it does not.
-    w("         a free key adds the books the sandbox withholds, but the AFL ceiling");
-    w("         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.");
-    w("         The 14-book depth is the RACING panel: /v1/racing/*");
+    // NOT "the keyed API serves 14 books". 14 is the RACING panel. The sports panel is
+    // thinner, and printing the racing number inside an AFL tool tells the reader a free
+    // key unlocks something it does not. Counts below were read off
+    // /v1/sports/{key}/odds?markets=h2h on 2026-09-15.
+    w("         a free key adds the books the sandbox withholds, but the sports");
+    w("         panel is thinner than the racing one: measured 2026-09-15, afl and");
+    w("         nrl carried 6 bookmakers, nba 5, aflw 3. 14 books is /v1/racing/*");
   }
   w();
 
@@ -645,7 +709,11 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
     w(`  ${padR("bookmaker", 14)} ${padL(clip(fx.home, col), col)} ${padL(clip(fx.away, col), col)}`);
     const rule = "  " + "-".repeat(14) + " " + "-".repeat(col) + " " + "-".repeat(col);
     w(rule);
-    if (!fx.prices.size) w("  (no bookmaker returned a price for this fixture)");
+    if (!fx.prices.size) {
+      w(fx.marketBest.size
+        ? "  (no per-book grid here; the market-best prices are below)"
+        : "  (no bookmaker returned a price for this fixture)");
+    }
     for (const book of fx.books()) {
       const sides = fx.prices.get(book);
       w(`  ${padR(book, 14)} ${padL(price2(sides.home), col)} ${padL(price2(sides.away), col)}`);
@@ -654,8 +722,10 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
 
     const [bestH, atH] = fx.best("home");
     const [bestA, atA] = fx.best("away");
-    w(`  ${padR("best", 14)} ${padL(price2(bestH), col)} ${padL(price2(bestA), col)}`);
-    w(`  ${padR("implied", 14)} ${padL(pctOf(bestH), col)} ${padL(pctOf(bestA), col)}`);
+    const [effH] = effectiveBest(fx, "home", bestH);
+    const [effA] = effectiveBest(fx, "away", bestA);
+    w(`  ${padR("best", 14)} ${padL(price2(effH), col)} ${padL(price2(effA), col)}`);
+    w(`  ${padR("implied", 14)} ${padL(pctOf(effH), col)} ${padL(pctOf(effA), col)}`);
     w();
 
     for (const [side, team, price, at] of [
@@ -663,7 +733,14 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
       ["away", fx.away, bestA, atA],
     ]) {
       if (price === null) {
-        w(`  ${padR("best " + clip(team, namew), labelw)}${padL("-", 7)}`);
+        // No per-book grid, but /demo/best-odds still gave the market-wide
+        // best. Showing "-" would throw data away.
+        const [eff, mbBook] = effectiveBest(fx, side, null);
+        if (eff !== null) {
+          w(`  ${padR("best " + clip(team, namew), labelw)}${padL(eff.toFixed(2), 7)}  at ${mbBook}  (market best; no per-book grid)`);
+        } else {
+          w(`  ${padR("best " + clip(team, namew), labelw)}${padL("-", 7)}`);
+        }
         continue;
       }
       let line = `  ${padR("best " + clip(team, namew), labelw)}${padL(price.toFixed(2), 7)}  at ${at.join(", ")}`;
@@ -674,8 +751,8 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
       w(line);
     }
 
-    const orr = fx.overround([bestH, bestA].filter((p) => p));
-    if (orr && bestH && bestA) {
+    const orr = fx.overround([effH, effA].filter((p) => p));
+    if (orr && effH && effA) {
       w(`  ${padR("overround at best-of-market prices", labelw)}${padL((orr * 100).toFixed(2) + "%", 7)}`);
       const per = [...fx.bookOverrounds().entries()];
       if (per.length > 1) {
@@ -746,8 +823,20 @@ function toJson(fixtures, sport, source, mode) {
 function toHtml(fixtures, sport, source, mode) {
   const esc = (s) =>
     String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // The page is written for whichever sport was asked for. Hard-coding "AFL"
+  // here once produced an --sport aflw page headed "AFL head-to-head odds"
+  // above nine AFLW fixtures.
+  const label = esc(sport.toUpperCase());
+  const dataLink =
+    sport === "afl"
+      ? "https://puntersedge.online/afl-odds-api-australia"
+      : "https://puntersedge.online/developers/sports-odds-api-australia";
+  const dataText =
+    sport === "afl"
+      ? "PuntersEdge AFL odds API"
+      : "PuntersEdge sports odds API (Australia)";
   const parts = [`<!doctype html><meta charset="utf-8">
-<title>AFL odds grid</title>
+<title>${label} odds grid</title>
 <style>
 :root{color-scheme:light dark;--fg:#16181d;--bg:#fbfbf9;--mut:#6b7280;--line:#dfe1e4;--hi:#0b5c3f;--hibg:#e7f4ee}
 @media(prefers-color-scheme:dark){:root{--fg:#e6e7ea;--bg:#15171b;--mut:#9aa1ab;--line:#2d3138;--hi:#6ee7b7;--hibg:#16302a}}
@@ -775,17 +864,23 @@ footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;
 color:var(--mut);font-size:12.5px}
 a{color:inherit}
 </style><main>`];
-  parts.push("<h1>AFL head-to-head odds &mdash; best price per team</h1>");
+  parts.push(`<h1>${label} head-to-head odds &mdash; best price per team</h1>`);
   parts.push(
-    `<p class="meta">${esc(source)}<br>${esc(mode)} &middot; generated ${new Date()
+    `<p class="meta">Snapshot taken ${new Date()
       .toISOString()
       .slice(0, 16)
-      .replace("T", " ")} UTC</p>`
+      .replace("T", " ")} UTC &middot; prices move, re-run to refresh<br>${esc(
+      source
+    )}<br>${esc(mode)}</p>`
   );
 
   for (const fx of fixtures) {
-    const [bestH, atH] = fx.best("home");
-    const [bestA, atA] = fx.best("away");
+    const [bestH, atH0] = fx.best("home");
+    const [bestA, atA0] = fx.best("away");
+    const [effH, mbH, gridH] = effectiveBest(fx, "home", bestH);
+    const [effA, mbA, gridA] = effectiveBest(fx, "away", bestA);
+    const atH = gridH ? atH0 : mbH ? [mbH] : [];
+    const atA = gridA ? atA0 : mbA ? [mbA] : [];
     parts.push(`<section><h2>${esc(fx.label())}</h2>`);
     parts.push(
       `<p class="sub">${esc(fmtLocal(fx.start))} &middot; ${esc(fx.competitions.join(" / ") || "-")} &middot; ${fx.prices.size} bookmaker(s)</p>`
@@ -797,11 +892,17 @@ a{color:inherit}
       const s = fx.prices.get(book);
       parts.push(`<tr><td>${esc(book)}</td><td>${price2(s.home)}</td><td>${price2(s.away)}</td></tr>`);
     }
-    parts.push(`<tr class="best"><td>best</td><td>${price2(bestH)}</td><td>${price2(bestA)}</td></tr>`);
+    parts.push(`<tr class="best"><td>best</td><td>${price2(effH)}</td><td>${price2(effA)}</td></tr>`);
     parts.push(`<tr class="sub"><td>at</td><td>${esc(atH.join(",") || "-")}</td><td>${esc(atA.join(",") || "-")}</td></tr>`);
-    parts.push(`<tr class="sub"><td>implied probability</td><td>${pctOf(bestH)}</td><td>${pctOf(bestA)}</td></tr>`);
+    parts.push(`<tr class="sub"><td>implied probability</td><td>${pctOf(effH)}</td><td>${pctOf(effA)}</td></tr>`);
     parts.push("</tbody></table>");
-    const orr = fx.overround([bestH, bestA].filter((p) => p));
+    if (!fx.prices.size && (effH || effA)) {
+      parts.push(
+        '<p class="note">No per-bookmaker grid for this fixture; the row above ' +
+          "is the market-wide best price from /v1/demo/best-odds.</p>"
+      );
+    }
+    const orr = fx.overround([effH, effA].filter((p) => p));
     if (orr) {
       parts.push(`<p class="orr">Overround at best-of-market prices <b>${(orr * 100).toFixed(2)}%</b></p>`);
       const per = [...fx.bookOverrounds().entries()];
@@ -823,8 +924,8 @@ a{color:inherit}
       "18+ only. Gambling can be addictive &mdash; please gamble responsibly. " +
       "Gambling Help: 1800 858 858 &middot; " +
       '<a href="https://www.gambleaware.nsw.gov.au">gambleaware.nsw.gov.au</a><br>' +
-      'Data: <a href="https://puntersedge.online/afl-odds-api-australia' +
-      '?utm_source=afl-odds-api-example&amp;utm_medium=demo">PuntersEdge AFL odds API</a>. ' +
+      `Data: <a href="${dataLink}` +
+      `?utm_source=afl-odds-api-example&amp;utm_medium=demo">${dataText}</a>. ` +
       "This page is a developer example for reading an odds data feed. It is not " +
       "betting advice, it places no bets and it holds no bookmaker credentials." +
       "</footer></main>"
@@ -858,7 +959,10 @@ function parseArgs(argv) {
           "  --matches-only  drop markets that are not team-vs-team\n" +
           "  --json          emit JSON instead of a table\n" +
           "  --html FILE     also write an HTML table to FILE\n" +
-          "  --books a,b     comma-separated bookmaker keys to probe (keyless mode)\n" +
+          "  --books a,b     comma-separated bookmakers to probe in keyless mode.\n" +
+          `                  The demo endpoint accepts: ${DEMO_BOOKS.join(", ")}.\n` +
+          "                  Keyed spellings (betright, ladbrokes_au, pointsbetau)\n" +
+          "                  are translated for you.\n" +
           "  -v, --verbose   log each HTTP call"
       );
       process.exit(0);
@@ -882,12 +986,6 @@ async function main() {
       [fixtures, source] = await loadKeyed(client, args.sport);
       mode = "keyed (PE_API_KEY set)";
     } else {
-      if (!DEMO_SPORTS.includes(args.sport)) {
-        process.stderr.write(
-          `note: the demo endpoints have no '${args.sport}' sport; they accept ` +
-            `${DEMO_SPORTS.join(", ")}.\n      Use a free key for ${args.sport}.\n`
-        );
-      }
       const books = args.books ? args.books.split(",") : null;
       [fixtures, responding, source] = await loadKeyless(client, args.sport, books, args.verbose);
       mode = "keyless sandbox (0 credits, no registration)";
@@ -903,8 +1001,7 @@ async function main() {
     }
     if (err.status === 401 || err.status === 429) {
       process.stderr.write(
-        "Get a free key (1,500 credits/month, no card): " +
-          "https://puntersedge.online/api?utm_source=afl-odds-api-example&utm_medium=code\n"
+        `Get a free key (1,500 credits/month, no card): ${SIGNUP_URL}\n`
       );
     }
     client.close();

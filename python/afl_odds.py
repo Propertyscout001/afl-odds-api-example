@@ -6,7 +6,9 @@ price per team with the bookmaker offering it, the implied probability and the
 market overround.
 
 Runs with no API key at all (sandbox endpoints, 0 credits). With PE_API_KEY set
-it uses the keyed endpoints and sees every bookmaker instead of the sandbox two.
+it uses the keyed endpoints instead: the whole grid in one call, and every
+bookmaker quoting the fixture rather than the sandbox's subset (measured
+2026-09-15 on AFL, 6 bookmakers keyed against 5 in the sandbox).
 
 Standard library only. Python 3.9+.
 
@@ -34,6 +36,8 @@ from datetime import datetime, timedelta, timezone
 HOST = "api.puntersedge.online"
 PREFIX = "/v1"
 USER_AGENT = "afl-odds-api-example/1.0 (+https://github.com/Propertyscout001/afl-odds-api-example)"
+SIGNUP_URL = ("https://puntersedge.online/api"
+              "?utm_source=afl-odds-api-example&utm_medium=code")
 
 # The 14 Australian bookmakers the API serves, as of 2026-09-15.
 # Live list: https://puntersedge.online/coverage-report
@@ -52,11 +56,12 @@ BOOKMAKERS = [
 #
 DEMO_BOOKS = ["betr", "ladbrokes", "neds", "pointsbet", "sportsbet", "tab", "unibet"]
 
-# Which keyed bookmaker each demo key actually serves. The four marked VERIFIED
+# Which keyed bookmaker each demo key actually serves. The five marked VERIFIED
 # were established 2026-09-15 by comparing the demo price vectors against
 # /v1/sports/afl/odds rather than by guessing from the spelling, which matters:
 # demo "betr" matched betright on 4 of 4 prices, so it is betright, NOT betr_au.
-# neds and unibet returned no AFL data in the sandbox, so there were no prices to
+# Each of the five matched exactly one keyed book outright. neds and unibet
+# returned no data in the sandbox for afl or nrl, so there were no prices to
 # compare and their mapping is only assumed from the name. Re-derive if the
 # sandbox changes.
 DEMO_TO_KEYED = {
@@ -64,10 +69,13 @@ DEMO_TO_KEYED = {
     "ladbrokes": "ladbrokes_au",  # VERIFIED 4/4 prices
     "pointsbet": "pointsbetau",   # VERIFIED 4/4 prices
     "sportsbet": "sportsbet",     # VERIFIED 6/6 prices
-    "tab": "tab",                 # matched on an earlier sweep; name unambiguous
+    "tab": "tab",                 # VERIFIED 4/4 prices
     "neds": "neds",               # ASSUMED - no sandbox data to compare
     "unibet": "unibet",           # ASSUMED - no sandbox data to compare
 }
+
+# The reverse direction, so --books accepts either spelling.
+KEYED_TO_DEMO = {v: k for k, v in DEMO_TO_KEYED.items()}
 
 # The demo `sport` vocabulary differs too, and has no aflw:
 #   afl, cricket, greyhound-racing, horse-racing, mma, nba, nrl, rugby-union,
@@ -76,7 +84,8 @@ DEMO_SPORTS = ["afl", "cricket", "greyhound-racing", "horse-racing", "mma",
                "nba", "nrl", "rugby-union", "soccer", "tennis"]
 
 # /v1/demo/* is capped at 30 requests per minute per IP. Probing all seven demo
-# books costs 8 calls including the best-odds call, which fits.
+# books costs 8 calls including the best-odds call, which fits. Two runs (16)
+# also fit; three do not.
 DEMO_RATE_LIMIT_PER_MIN = 30
 
 # Tokens that carry no identity when matching one bookmaker's spelling of a team
@@ -111,9 +120,11 @@ class ApiError(Exception):
 class Client:
     """One HTTPS connection, held open across every request.
 
-    Measured 2026-09-15: a cold request cost 163ms (40ms TCP + 41ms TLS on top
-    of the response); subsequent requests on the same connection cost 48-53ms.
-    Worth having when the keyless path makes 15 calls in a row.
+    A cold request pays a TCP connect plus a TLS handshake before the request
+    is even sent; on a reused connection both are zero. Measured 2026-09-15
+    from a residential connection in Australia: 46ms TCP and a further 104ms
+    TLS. Your own latency will differ - the point is that the handshake is paid
+    once rather than once per call, and the keyless path makes 8 calls in a row.
     """
 
     def __init__(self, api_key=None, timeout=15.0, verbose=False):
@@ -148,7 +159,8 @@ class Client:
         headers = {
             "Accept": "application/json",
             # Responses compress about 7x. Measured 2026-09-15 on
-            # /v1/sports/afl/odds: 7,486 bytes of JSON, 1,080 on the wire.
+            # /v1/sports/afl/odds?markets=h2h: 7,491 bytes of JSON arrived as
+            # 1,048 bytes on the wire.
             "Accept-Encoding": "gzip",
             "User-Agent": USER_AGENT,
             "Connection": "keep-alive",
@@ -442,15 +454,45 @@ def load_keyless(client, sport, books=None, verbose=False):
 
     /v1/demo/best-odds gives the market-wide best price per team but not the
     per-book grid. /v1/demo/book-sport gives one book's prices at a time, so
-    loop it to build the grid. Only part of the book list answers in the
-    sandbox: measured 2026-09-15 for AFL, tab and sportsbet returned data and
-    the other twelve returned an empty item list.
+    loop it to build the grid. Not every book answers: measured 2026-09-15 for
+    AFL, five of the seven the sandbox accepts returned data (betr, ladbrokes,
+    pointsbet, sportsbet, tab) and two returned an empty item list (neds,
+    unibet).
 
-    Mind the 30 requests/minute/IP cap on /v1/demo/*: this makes
-    1 + len(books) calls, so the default two-book probe costs 3.
+    The two demo endpoints do not accept the same sports. /demo/best-odds
+    serves aflw; /demo/book-sport rejects it with a 400 (verified 2026-09-15).
+    So for a sport outside DEMO_SPORTS the per-book sweep is skipped: it can
+    only return seven 400s, and on a 30 requests/minute/IP cap that is a
+    quarter of the budget spent on a known miss. The same applies when
+    /demo/best-odds returns no events at all - there is nothing to attach
+    per-book prices to.
+
+    Mind that cap: a full run makes 1 + len(books) calls, so the default
+    seven-book sweep costs 8.
     """
+    # --books takes the demo vocabulary, but the table prints keyed names, so a
+    # reader copying "betright" off the output would otherwise get a 400.
+    # Translate keyed spellings back to the demo key before sending.
+    probe = [KEYED_TO_DEMO.get(b.strip(), b.strip()) for b in books] if books \
+        else list(DEMO_BOOKS)
+
     payload = client.get("/demo/best-odds", {"sport": sport})
     events, _ = unwrap(payload, "events")
+
+    skip_reason = None
+    if sport not in DEMO_SPORTS:
+        skip_reason = ("/v1/demo/book-sport does not accept sport=%s (400); "
+                       "only /v1/demo/best-odds does" % sport)
+    elif not events:
+        skip_reason = "/v1/demo/best-odds returned no %s events to attach prices to" % sport
+    if skip_reason:
+        sys.stderr.write(
+            "note: skipping the %d book probe(s) - %s.\n"
+            "      That saves %d of the %d requests/minute the demo allows.\n"
+            "      For the per-bookmaker grid use a free key: %s\n"
+            % (len(probe), skip_reason, len(probe), DEMO_RATE_LIMIT_PER_MIN,
+               SIGNUP_URL))
+        probe = []
 
     fixtures = []
     for ev in events:
@@ -464,7 +506,6 @@ def load_keyless(client, sport, books=None, verbose=False):
                                         sel.get("best_bookmaker"))
         fixtures.append(fx)
 
-    probe = books or DEMO_BOOKS
     responding = []
     failed = []
     attempted = []
@@ -499,8 +540,11 @@ def load_keyless(client, sport, books=None, verbose=False):
             for price in item.get("prices", []):
                 fx.add_price(label, price.get("name"), price.get("price"))
 
-    return (fixtures, (responding, attempted, probe, failed),
-            "/v1/demo/best-odds + /v1/demo/book-sport x%d" % len(probe))
+    if not probe:
+        source = "/v1/demo/best-odds (per-book sweep skipped)"
+    else:
+        source = "/v1/demo/best-odds + /v1/demo/book-sport x%d" % len(probe)
+    return fixtures, (responding, attempted, probe, failed), source
 
 
 def _find(fixtures, item):
@@ -530,12 +574,28 @@ def fmt_local(dt, tzname="Australia/Sydney"):
         return local.strftime("%a %d %b %Y %H:%M AEST")
 
 
+def effective_best(fx, side, book_best):
+    """Best price to show for one side.
+
+    The per-book grid wins when it exists. When it does not - keyless AFLW,
+    where /v1/demo/book-sport refuses the sport - /v1/demo/best-odds still
+    returned a market-wide best per team, and printing "-" would throw that
+    away. Returns (price, bookmaker, from_grid).
+    """
+    if book_best is not None:
+        return book_best, None, True
+    mb = fx.market_best.get(side)
+    if mb:
+        return mb[0], mb[1], False
+    return None, None, True
+
+
 def render(fixtures, sport, source, client, mode, responding=None, width=72):
     out = []
     w = out.append
 
     quoting = sorted({b for fx in fixtures for b in fx.prices})
-    w("AFL odds via PuntersEdge  -  %s h2h, decimal" % sport.upper())
+    w("%s odds via PuntersEdge  -  head-to-head, decimal" % sport.upper())
     w("source   %s" % source)
     w("mode     %s" % mode)
     w("fetched  %s" % datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -545,9 +605,14 @@ def render(fixtures, sport, source, client, mode, responding=None, width=72):
         answered, attempted, probed, failed = responding
         bad = {b for b, _ in failed}
         silent = [b for b in attempted if b not in answered and b not in bad]
-        w("sandbox  asked %d of the %d books the demo accepts, %d returned data"
-          % (len(attempted), len(DEMO_BOOKS), len(answered)))
-        w("         demo book names differ from keyed ones (betr -> betright)")
+        if not probed:
+            w("sandbox  per-book sweep skipped, so this is /v1/demo/best-odds only:")
+            w("         market-best price per team, no per-bookmaker grid")
+            w("         (the reason is on stderr)")
+        else:
+            w("sandbox  asked %d of the %d books the demo accepts, %d returned data"
+              % (len(attempted), len(DEMO_BOOKS), len(answered)))
+            w("         demo book names differ from keyed ones (betr -> betright)")
         if silent:
             w("         quoted nothing: %s" % ", ".join(silent))
         skipped = [b for b in probed if b not in attempted]
@@ -559,13 +624,13 @@ def render(fixtures, sport, source, client, mode, responding=None, width=72):
             if any(e.status == 429 for _, e in failed):
                 w("         -> 429 is the 30 requests/minute/IP demo cap, not a")
                 w("            statement about what those bookmakers quote")
-        # NOT "the keyed API serves 14 books". 14 is the RACING panel. On AFL the ceiling
-        # is 6 -- only Sportsbet, TAB, Ladbrokes, BetRight, PointsBet and Palmerbet supply
-        # sports odds at all, and not all six quote every fixture. Printing the racing number
-        # inside an AFL tool tells the reader a free key unlocks something it does not.
-        w("         a free key adds the books the sandbox withholds, but the AFL ceiling")
-        w("         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.")
-        w("         The 14-book depth is the RACING panel: /v1/racing/*")
+        # NOT "the keyed API serves 14 books". 14 is the RACING panel. The sports
+        # panel is thinner, and printing the racing number inside an AFL tool tells
+        # the reader a free key unlocks something it does not. Counts below were
+        # read off /v1/sports/{key}/odds?markets=h2h on 2026-09-15.
+        w("         a free key adds the books the sandbox withholds, but the sports")
+        w("         panel is thinner than the racing one: measured 2026-09-15, afl and")
+        w("         nrl carried 6 bookmakers, nba 5, aflw 3. 14 books is /v1/racing/*")
     w("")
 
     for fx in fixtures:
@@ -591,7 +656,10 @@ def render(fixtures, sport, source, client, mode, responding=None, width=72):
         rule = "  " + "-" * 14 + " " + "-" * col + " " + "-" * col
         w(rule)
         if not fx.prices:
-            w("  (no bookmaker returned a price for this fixture)")
+            if fx.market_best:
+                w("  (no per-book grid here; the market-best prices are below)")
+            else:
+                w("  (no bookmaker returned a price for this fixture)")
         for book in fx.books():
             sides = fx.prices[book]
             w("  %-14s %*s %*s" % (book, col, _price(sides.get("home")),
@@ -600,14 +668,23 @@ def render(fixtures, sport, source, client, mode, responding=None, width=72):
 
         best_h, at_h = fx.best("home")
         best_a, at_a = fx.best("away")
-        w("  %-14s %*s %*s" % ("best", col, _price(best_h), col, _price(best_a)))
-        w("  %-14s %*s %*s" % ("implied", col, _pct_of(best_h), col, _pct_of(best_a)))
+        eff_h, mb_h, grid_h = effective_best(fx, "home", best_h)
+        eff_a, mb_a, grid_a = effective_best(fx, "away", best_a)
+        w("  %-14s %*s %*s" % ("best", col, _price(eff_h), col, _price(eff_a)))
+        w("  %-14s %*s %*s" % ("implied", col, _pct_of(eff_h), col, _pct_of(eff_a)))
         w("")
 
         for side, team, price, at in (("home", fx.home, best_h, at_h),
                                       ("away", fx.away, best_a, at_a)):
             if price is None:
-                w("  %-*s%7s" % (labelw, "best " + _clip(team, namew), "-"))
+                # No per-book grid, but /demo/best-odds still gave the
+                # market-wide best. Showing "-" would throw data away.
+                eff, mb_book, _ = effective_best(fx, side, None)
+                if eff is not None:
+                    w("  %-*s%7.2f  at %s  (market best; no per-book grid)"
+                      % (labelw, "best " + _clip(team, namew), eff, mb_book))
+                else:
+                    w("  %-*s%7s" % (labelw, "best " + _clip(team, namew), "-"))
                 continue
             line = "  %-*s%7.2f  at %s" % (labelw, "best " + _clip(team, namew),
                                            price, ", ".join(at))
@@ -616,8 +693,8 @@ def render(fixtures, sport, source, client, mode, responding=None, width=72):
                 line += "   (market best %.2f at %s)" % (mb[0], mb[1])
             w(line)
 
-        orr = fx.overround([p for p in (best_h, best_a) if p])
-        if orr and best_h and best_a:
+        orr = fx.overround([p for p in (eff_h, eff_a) if p])
+        if orr and eff_h and eff_a:
             w("  %-*s%7s" % (labelw, "overround at best-of-market prices",
                               "%.2f%%" % (orr * 100)))
             per = fx.book_overrounds()
@@ -707,8 +784,18 @@ def to_json(fixtures, sport, source, mode):
 def to_html(fixtures, sport, source, mode):
     esc = lambda s: (str(s).replace("&", "&amp;").replace("<", "&lt;")
                      .replace(">", "&gt;"))
+    # The page is written for whichever sport was asked for. Hard-coding "AFL"
+    # here once produced an --sport aflw page headed "AFL head-to-head odds"
+    # above nine AFLW fixtures.
+    label = esc(sport.upper())
+    if sport == "afl":
+        data_link = "https://puntersedge.online/afl-odds-api-australia"
+        data_text = "PuntersEdge AFL odds API"
+    else:
+        data_link = "https://puntersedge.online/developers/sports-odds-api-australia"
+        data_text = "PuntersEdge sports odds API (Australia)"
     parts = ["""<!doctype html><meta charset="utf-8">
-<title>AFL odds grid</title>
+<title>%s odds grid</title>""" % label + """
 <style>
 :root{color-scheme:light dark;--fg:#16181d;--bg:#fbfbf9;--mut:#6b7280;--line:#dfe1e4;--hi:#0b5c3f;--hibg:#e7f4ee}
 @media(prefers-color-scheme:dark){:root{--fg:#e6e7ea;--bg:#15171b;--mut:#9aa1ab;--line:#2d3138;--hi:#6ee7b7;--hibg:#16302a}}
@@ -736,14 +823,21 @@ footer{border-top:1px solid var(--line);margin-top:28px;padding-top:16px;
 color:var(--mut);font-size:12.5px}
 a{color:inherit}
 </style><main>"""]
-    parts.append("<h1>AFL head-to-head odds &mdash; best price per team</h1>")
-    parts.append('<p class="meta">%s<br>%s &middot; generated %s</p>' % (
-        esc(source), esc(mode),
-        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")))
+    parts.append("<h1>%s head-to-head odds &mdash; best price per team</h1>" % label)
+    parts.append('<p class="meta">Snapshot taken %s &middot; prices move, '
+                 're-run to refresh<br>%s<br>%s</p>' % (
+                     datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                     esc(source), esc(mode)))
 
     for fx in fixtures:
         best_h, at_h = fx.best("home")
         best_a, at_a = fx.best("away")
+        eff_h, mb_h, grid_h = effective_best(fx, "home", best_h)
+        eff_a, mb_a, grid_a = effective_best(fx, "away", best_a)
+        if not grid_h:
+            at_h = [mb_h] if mb_h else []
+        if not grid_a:
+            at_a = [mb_a] if mb_a else []
         parts.append("<section><h2>%s</h2>" % esc(fx.label()))
         parts.append('<p class="sub">%s &middot; %s &middot; %d bookmaker(s)</p>' % (
             esc(fmt_local(fx.start)), esc(" / ".join(fx.competitions) or "-"),
@@ -755,13 +849,17 @@ a{color:inherit}
             parts.append("<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % (
                 esc(book), _price(s.get("home")), _price(s.get("away"))))
         parts.append('<tr class="best"><td>best</td><td>%s</td><td>%s</td></tr>'
-                     % (_price(best_h), _price(best_a)))
+                     % (_price(eff_h), _price(eff_a)))
         parts.append('<tr class="sub"><td>at</td><td>%s</td><td>%s</td></tr>'
                      % (esc(",".join(at_h) or "-"), esc(",".join(at_a) or "-")))
         parts.append('<tr class="sub"><td>implied probability</td><td>%s</td>'
-                     '<td>%s</td></tr>' % (_pct_of(best_h), _pct_of(best_a)))
+                     '<td>%s</td></tr>' % (_pct_of(eff_h), _pct_of(eff_a)))
         parts.append("</tbody></table>")
-        orr = fx.overround([p for p in (best_h, best_a) if p])
+        if not fx.prices and (eff_h or eff_a):
+            parts.append('<p class="note">No per-bookmaker grid for this '
+                         'fixture; the row above is the market-wide best price '
+                         'from /v1/demo/best-odds.</p>')
+        orr = fx.overround([p for p in (eff_h, eff_a) if p])
         if orr:
             parts.append('<p class="orr">Overround at best-of-market prices '
                          "<b>%.2f%%</b></p>" % (orr * 100))
@@ -781,11 +879,11 @@ a{color:inherit}
         '18+ only. Gambling can be addictive &mdash; please gamble responsibly. '
         'Gambling Help: 1800 858 858 &middot; '
         '<a href="https://www.gambleaware.nsw.gov.au">gambleaware.nsw.gov.au</a><br>'
-        'Data: <a href="https://puntersedge.online/afl-odds-api-australia'
-        '?utm_source=afl-odds-api-example&amp;utm_medium=demo">PuntersEdge AFL odds API</a>. '
+        'Data: <a href="%s'
+        '?utm_source=afl-odds-api-example&amp;utm_medium=demo">%s</a>. '
         'This page is a developer example for reading an odds data feed. It is not '
         'betting advice, it places no bets and it holds no bookmaker credentials.'
-        "</footer></main>")
+        "</footer></main>" % (data_link, data_text))
     return "\n".join(parts)
 
 
@@ -805,7 +903,11 @@ def main(argv=None):
                     help="force the no-key sandbox path even if PE_API_KEY is set")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
     ap.add_argument("--html", metavar="FILE", help="also write an HTML table to FILE")
-    ap.add_argument("--books", help="comma-separated bookmaker keys to probe (keyless mode)")
+    ap.add_argument("--books", metavar="A,B",
+                    help="comma-separated bookmakers to probe in keyless mode. "
+                         "The demo endpoint accepts: " + ", ".join(DEMO_BOOKS) +
+                         ". Keyed spellings (betright, ladbrokes_au, "
+                         "pointsbetau) are translated for you.")
     ap.add_argument("-v", "--verbose", action="store_true", help="log each HTTP call")
     args = ap.parse_args(argv)
 
@@ -819,11 +921,6 @@ def main(argv=None):
             responding = None
             mode = "keyed (PE_API_KEY set)"
         else:
-            if args.sport not in DEMO_SPORTS:
-                sys.stderr.write(
-                    "note: the demo endpoints have no '%s' sport; they accept "
-                    "%s.\n      Use a free key for %s.\n"
-                    % (args.sport, ", ".join(DEMO_SPORTS), args.sport))
             books = args.books.split(",") if args.books else None
             fixtures, responding, source = load_keyless(
                 client, args.sport, books, args.verbose)
@@ -837,9 +934,7 @@ def main(argv=None):
                 "key.\n" % DEMO_RATE_LIMIT_PER_MIN)
         if exc.status in (401, 429):
             sys.stderr.write(
-                "Get a free key (1,500 credits/month, no card): "
-                "https://puntersedge.online/api"
-                "?utm_source=afl-odds-api-example&utm_medium=code\n")
+                "Get a free key (1,500 credits/month, no card): %s\n" % SIGNUP_URL)
         return 2
 
     fixtures = merge_fixtures(fixtures)

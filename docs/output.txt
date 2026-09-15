@@ -1,14 +1,23 @@
-AFL odds via PuntersEdge  -  AFL h2h, decimal
+Captured 2026-09-15 on macOS 15 (Darwin 24.6.0), python3 3.9.6, node v22.22.0.
+Four runs, verbatim, stdout and stderr interleaved as a terminal shows them.
+Prices move: this is a dated snapshot, not live data. Re-run to refresh.
+
+############################################################
+# 1. keyless sandbox, no API key, 0 credits
+#    $ python3 python/afl_odds.py --keyless
+############################################################
+
+AFL odds via PuntersEdge  -  head-to-head, decimal
 source   /v1/demo/best-odds + /v1/demo/book-sport x7
 mode     keyless sandbox (0 credits, no registration)
-fetched  2026-09-15T00:09:31Z
+fetched  2026-09-15T00:27:02Z
 market   3 fixture(s), 5 bookmaker(s) quoting: betright, ladbrokes_au, pointsbetau, sportsbet, tab
 sandbox  asked 7 of the 7 books the demo accepts, 5 returned data
          demo book names differ from keyed ones (betr -> betright)
          quoted nothing: neds, unibet
-         a free key adds the books the sandbox withholds, but the AFL ceiling
-         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.
-         The 14-book depth is the RACING panel: /v1/racing/*
+         a free key adds the books the sandbox withholds, but the sports
+         panel is thinner than the racing one: measured 2026-09-15, afl and
+         nrl carried 6 bookmakers, nba 5, aflw 3. 14 books is /v1/racing/*
 
 ========================================================================
 Sydney v Fremantle
@@ -74,4 +83,137 @@ Mon 21 Sep 2026 20:10 AEST  1 book
 
 Implied probability = 1/price. Overround = the sum of those across the
 two outcomes. Both are arithmetic on the quoted prices and nothing more.
-elapsed 0.48s
+elapsed 0.61s
+
+############################################################
+# 2. keyed, AFL, non-match markets dropped
+#    $ PE_API_KEY=... python3 python/afl_odds.py --matches-only
+############################################################
+
+dropped non-match market: Brodie Grundy v Christian Petracca (AFL Brownlow H2H's)
+AFL odds via PuntersEdge  -  head-to-head, decimal
+source   /v1/sports/afl/odds?markets=h2h
+mode     keyed (PE_API_KEY set)
+fetched  2026-09-15T00:27:02Z
+market   2 fixture(s), 6 bookmaker(s) quoting: betright, ladbrokes_au, palmerbet, pointsbetau, sportsbet, tab
+
+========================================================================
+Sydney v Fremantle
+Fri 18 Sep 2026 19:40 AEST  AFL  6 books  freshest 49s old
+
+  bookmaker            Sydney    Fremantle
+  -------------- ------------ ------------
+  tab                    2.45         1.55
+  pointsbetau            2.45         1.54
+  betright               2.45         1.55
+  palmerbet              2.60         1.40
+  ladbrokes_au           2.50         1.55
+  sportsbet              2.50         1.54
+  -------------- ------------ ------------
+  best                   2.60         1.55
+  implied              38.46%       64.52%
+
+  best Sydney                            2.60  at palmerbet
+  best Fremantle                         1.55  at betright, ladbrokes_au, tab
+  overround at best-of-market prices  102.98%
+  same sum inside one book            104.52%  ladbrokes_au
+                                      109.89%  palmerbet
+
+========================================================================
+Hawthorn v Brisbane Lions
+Sat 19 Sep 2026 17:15 AEST  AFL  6 books  freshest 49s old
+
+  bookmaker          Hawthorn Brisbane Li…
+  -------------- ------------ ------------
+  tab                    2.00         1.80
+  pointsbetau            2.00         1.80
+  betright               2.02         1.80
+  palmerbet              2.00         1.80
+  ladbrokes_au           2.00         1.82
+  sportsbet              2.00         1.80
+  -------------- ------------ ------------
+  best                   2.02         1.82
+  implied              49.50%       54.95%
+
+  best Hawthorn                          2.02  at betright
+  best Brisbane Lions                    1.82  at ladbrokes_au
+  overround at best-of-market prices  104.45%
+  same sum inside one book            104.95%  ladbrokes_au
+                                      105.56%  palmerbet
+
+========================================================================
+1 HTTP call(s) on one connection, 1 credits
+1.1 kB on the wire, 7.3 kB after gunzip (6.9x)
+
+Implied probability = 1/price. Overround = the sum of those across the
+two outcomes. Both are arithmetic on the quoted prices and nothing more.
+elapsed 0.23s
+
+############################################################
+# 3. keyless AFLW -- the book sweep is skipped, so this costs
+#    1 request not 8: /v1/demo/book-sport rejects sport=aflw
+#    with a 400, while /v1/demo/best-odds serves it
+#    $ python3 python/afl_odds.py --keyless --sport aflw
+############################################################
+
+note: skipping the 7 book probe(s) - /v1/demo/book-sport does not accept sport=aflw (400); only /v1/demo/best-odds does.
+      That saves 7 of the 30 requests/minute the demo allows.
+      For the per-bookmaker grid use a free key: https://puntersedge.online/api?utm_source=afl-odds-api-example&utm_medium=code
+AFLW odds via PuntersEdge  -  head-to-head, decimal
+source   /v1/demo/best-odds (per-book sweep skipped)
+mode     keyless sandbox (0 credits, no registration)
+fetched  2026-09-15T00:27:02Z
+market   2 fixture(s), 0 bookmaker(s) quoting: none
+sandbox  per-book sweep skipped, so this is /v1/demo/best-odds only:
+         market-best price per team, no per-bookmaker grid
+         (the reason is on stderr)
+         a free key adds the books the sandbox withholds, but the sports
+         panel is thinner than the racing one: measured 2026-09-15, afl and
+         nrl carried 6 bookmakers, nba 5, aflw 3. 14 books is /v1/racing/*
+
+========================================================================
+Hawthorn Hawks Women v North Melbourne Women
+Fri 18 Sep 2026 17:45 AEST  0 books
+
+  bookmaker      Hawthorn Ha… North Melbo…
+  -------------- ------------ ------------
+  (no per-book grid here; the market-best prices are below)
+  -------------- ------------ ------------
+  best                   9.00         1.05
+  implied              11.11%       95.24%
+
+  best Hawthorn Hawks Women              9.00  at pointsbetau  (market best; no per-book grid)
+  best North Melbourne Women             1.05  at pointsbetau  (market best; no per-book grid)
+  overround at best-of-market prices  106.35%
+
+========================================================================
+Collingwood Women v Geelong Cats Women
+Sat 19 Sep 2026 12:35 AEST  0 books
+
+  bookmaker      Collingwood… Geelong Cat…
+  -------------- ------------ ------------
+  (no per-book grid here; the market-best prices are below)
+  -------------- ------------ ------------
+  best                   8.00         1.07
+  implied              12.50%       93.46%
+
+  best Collingwood Women                 8.00  at pointsbetau  (market best; no per-book grid)
+  best Geelong Cats Women                1.07  at pointsbetau  (market best; no per-book grid)
+  overround at best-of-market prices  105.96%
+
+========================================================================
+1 HTTP call(s) on one connection, 0 credits
+447 B on the wire, 1.2 kB after gunzip (2.8x)
+
+Implied probability = 1/price. Overround = the sum of those across the
+two outcomes. Both are arithmetic on the quoted prices and nothing more.
+elapsed 0.25s
+
+############################################################
+# 4. a bad key -- RFC 9457 problem+json, surfaced not swallowed
+#    $ PE_API_KEY=wrong-key python3 python/afl_odds.py
+############################################################
+
+API error: 401 Invalid API key. That value looks too short to be a PuntersEdge key. Retrying will not clear this. Check the key in your console at https://puntersedge.online/api/console — if it was rotated, the previous key stops working once its grace window expires. Need a new one? https://puntersedge.online/api?utm_source=api_401&utm_medium=invalid_key (/v1/sports/afl/odds?markets=h2h)
+Get a free key (1,500 credits/month, no card): https://puntersedge.online/api?utm_source=afl-odds-api-example&utm_medium=code
+(exit status 2)
