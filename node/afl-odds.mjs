@@ -616,7 +616,13 @@ function render(fixtures, sport, source, client, mode, responding = null, width 
         w("            statement about what those bookmakers quote");
       }
     }
-    w(`         the keyed API serves ${BOOKMAKERS.length} books; a free key shows all of them`);
+    // NOT "the keyed API serves 14 books". 14 is the RACING panel. On AFL the ceiling is 6
+    // -- only Sportsbet, TAB, Ladbrokes, BetRight, PointsBet and Palmerbet supply sports odds
+    // at all, and not all six quote every fixture. Printing the racing number inside an AFL
+    // tool tells the reader a free key unlocks something it does not.
+    w("         a free key adds the books the sandbox withholds, but the AFL ceiling");
+    w("         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.");
+    w("         The 14-book depth is the RACING panel: /v1/racing/*");
   }
   w();
 

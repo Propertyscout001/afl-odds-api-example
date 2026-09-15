@@ -44,7 +44,9 @@ market   3 fixture(s), 5 bookmaker(s) quoting: betright, ladbrokes_au, pointsbet
 sandbox  asked 7 of the 7 books the demo accepts, 5 returned data
          demo book names differ from keyed ones (betr -> betright)
          quoted nothing: neds, unibet
-         the keyed API serves 14 books; a free key shows all of them
+         a free key adds the books the sandbox withholds, but the AFL ceiling
+         is 6 -- only 6 of the 14 served bookmakers supply sports odds at all.
+         The 14-book depth is the RACING panel: /v1/racing/*
 
 ========================================================================
 Sydney v Fremantle
