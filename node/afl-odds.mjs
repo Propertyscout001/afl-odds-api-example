@@ -48,18 +48,21 @@ const BOOKMAKERS = [
 //
 const DEMO_BOOKS = ["betr", "ladbrokes", "neds", "pointsbet", "sportsbet", "tab", "unibet"];
 
-// Which keyed bookmaker each demo key actually serves. Established 2026-09-15 by
-// comparing the demo price vectors against /v1/sports/afl/odds rather than by
-// guessing from the spelling - demo "betr" matched betright on 4 of 4 prices, so
-// it is betright and not betr_au. Re-derive this if the sandbox changes.
+// Which keyed bookmaker each demo key actually serves. The four marked VERIFIED
+// were established 2026-09-15 by comparing the demo price vectors against
+// /v1/sports/afl/odds rather than by guessing from the spelling, which matters:
+// demo "betr" matched betright on 4 of 4 prices, so it is betright, NOT betr_au.
+// neds and unibet returned no AFL data in the sandbox, so there were no prices to
+// compare and their mapping is only assumed from the name. Re-derive if the
+// sandbox changes.
 const DEMO_TO_KEYED = {
-  betr: "betright",
-  ladbrokes: "ladbrokes_au",
-  neds: "neds",
-  pointsbet: "pointsbetau",
-  sportsbet: "sportsbet",
-  tab: "tab",
-  unibet: "unibet",
+  betr: "betright",         // VERIFIED 4/4 prices
+  ladbrokes: "ladbrokes_au", // VERIFIED 4/4 prices
+  pointsbet: "pointsbetau",  // VERIFIED 4/4 prices
+  sportsbet: "sportsbet",    // VERIFIED 6/6 prices
+  tab: "tab",                // matched on an earlier sweep; name unambiguous
+  neds: "neds",              // ASSUMED - no sandbox data to compare
+  unibet: "unibet",          // ASSUMED - no sandbox data to compare
 };
 
 // The demo `sport` vocabulary differs too, and has no aflw:

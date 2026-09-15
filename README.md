@@ -184,9 +184,11 @@ market with one bookmaker on it. Same shape, same sport key, not a fixture. The
 whose body lists what it does accept: `betr, ladbrokes, neds, pointsbet,
 sportsbet, tab, unibet`. The mapping is not guessable from the spelling —
 demo `betr` matched **betright** on 4 of 4 prices when compared against the keyed
-response, not `betr_au`. `DEMO_TO_KEYED` records that, derived by comparing price
-vectors rather than by assuming. The demo `sport` list differs too and has no
-`aflw`.
+response, not `betr_au`. `DEMO_TO_KEYED` records it, derived by comparing price
+vectors for the four books that returned data (`betr`, `ladbrokes`, `pointsbet`,
+`sportsbet`). `neds` and `unibet` returned no AFL prices in the sandbox, so there
+was nothing to compare and their mapping is marked ASSUMED in the source rather
+than presented as verified. The demo `sport` list differs too and has no `aflw`.
 
 **Demo endpoints are capped at 30 requests per minute per IP,** returning a 429.
 An early version of this code caught that exception and moved on, which made a
